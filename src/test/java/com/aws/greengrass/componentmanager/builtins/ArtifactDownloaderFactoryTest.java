@@ -216,4 +216,40 @@ class ArtifactDownloaderFactoryTest {
                         dependencyClosure));
         assertThat(err.getMessage(), containsString(DOCKER_PLUGIN_REQUIRED_ERROR_MSG));
     }
+
+    @Test
+    void GIVEN_https_artifact_THEN_return_http_downloader() throws Exception {
+        ComponentIdentifier pkgId = new ComponentIdentifier("SomeServiceWithHttpsArtifacts", new Semver("1.0.0"));
+
+        ComponentArtifact artifact =
+                ComponentArtifact.builder().artifactUri(new URI("https://d1234567890abc.cloudfront.net/artifacts/component.zip")).build();
+
+        ArtifactDownloader artifactDownloader =
+                artifactDownloaderFactory.getArtifactDownloader(pkgId, artifact, testDir);
+        assertThat(artifactDownloader, IsInstanceOf.instanceOf(HttpDownloader.class));
+    }
+
+    @Test
+    void GIVEN_http_artifact_THEN_return_http_downloader() throws Exception {
+        ComponentIdentifier pkgId = new ComponentIdentifier("SomeServiceWithHttpArtifacts", new Semver("1.0.0"));
+
+        ComponentArtifact artifact =
+                ComponentArtifact.builder().artifactUri(new URI("http://example.com/artifacts/component.zip")).build();
+
+        ArtifactDownloader artifactDownloader =
+                artifactDownloaderFactory.getArtifactDownloader(pkgId, artifact, testDir);
+        assertThat(artifactDownloader, IsInstanceOf.instanceOf(HttpDownloader.class));
+    }
+
+    @Test
+    void GIVEN_cloudfront_signed_url_THEN_return_http_downloader() throws Exception {
+        ComponentIdentifier pkgId = new ComponentIdentifier("ComponentWithSignedUrl", new Semver("1.0.0"));
+
+        ComponentArtifact artifact =
+                ComponentArtifact.builder().artifactUri(new URI("https://d1234567890abc.cloudfront.net/path/file.zip?Key-Pair-Id=APKA&Expires=123&Signature=abc")).build();
+
+        ArtifactDownloader artifactDownloader =
+                artifactDownloaderFactory.getArtifactDownloader(pkgId, artifact, testDir);
+        assertThat(artifactDownloader, IsInstanceOf.instanceOf(HttpDownloader.class));
+    }
 }

@@ -33,8 +33,10 @@ public class ArtifactDownloaderFactory {
     private static final String GREENGRASS_SCHEME = "GREENGRASS";
     private static final String S3_SCHEME = "S3";
     public static final String DOCKER_SCHEME = "DOCKER";
+    private static final String HTTP_SCHEME = "HTTP";
+    private static final String HTTPS_SCHEME = "HTTPS";
     private static final List<String> SUPPORTED_URI_SCHEMES = Arrays.asList(GREENGRASS_SCHEME, S3_SCHEME,
-            DOCKER_SCHEME);
+            DOCKER_SCHEME, HTTP_SCHEME, HTTPS_SCHEME);
 
     static final String TOKEN_EXCHANGE_SERVICE_REQUIRED_ERROR_MSG =
             String.format("Deployments containing private ECR Docker artifacts must include the %s component",
@@ -100,6 +102,9 @@ public class ArtifactDownloaderFactory {
         //  an artifact downloader can register itself and be discoverable here.
         if (DOCKER_SCHEME.equals(scheme)) {
             return new DockerImageDownloader(identifier, artifact, artifactDir, context, componentStore);
+        }
+        if (HTTP_SCHEME.equals(scheme) || HTTPS_SCHEME.equals(scheme)) {
+            return new HttpDownloader(identifier, artifact, artifactDir, componentStore);
         }
         throw new PackageLoadingException(String.format("artifact URI scheme %s is not supported yet", scheme),
                 DeploymentErrorCode.UNSUPPORTED_ARTIFACT_SCHEME);

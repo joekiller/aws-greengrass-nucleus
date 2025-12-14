@@ -45,6 +45,11 @@ public enum DeploymentErrorCode {
     DOWNLOAD_DEPLOYMENT_DOCUMENT_ERROR(DeploymentErrorType.HTTP_ERROR),
     GET_GREENGRASS_ARTIFACT_SIZE_ERROR(DeploymentErrorType.HTTP_ERROR),
     DOWNLOAD_GREENGRASS_ARTIFACT_ERROR(DeploymentErrorType.HTTP_ERROR),
+    HTTP_ARTIFACT_URI_NOT_VALID(DeploymentErrorType.COMPONENT_RECIPE_ERROR),
+    HTTP_HEAD_REQUEST_ERROR(DeploymentErrorType.HTTP_ERROR),
+    HTTP_GET_REQUEST_ERROR(DeploymentErrorType.HTTP_ERROR),
+    HTTP_ACCESS_DENIED(DeploymentErrorType.PERMISSION_ERROR),
+    HTTP_RESOURCE_NOT_FOUND(DeploymentErrorType.REQUEST_ERROR),
 
     /* IO errors */
     IO_ERROR(DeploymentErrorType.NONE),
