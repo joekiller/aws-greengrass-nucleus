@@ -234,7 +234,7 @@ class HttpDownloaderTest {
                 () -> downloader.getDownloadSize());
 
         assertThat(exception.getMessage(), containsStringIgnoringCase("Access denied"));
-        assertEquals(DeploymentErrorCode.HTTP_ACCESS_DENIED, exception.getErrorCode());
+        assertTrue(exception.getErrorCodes().contains(DeploymentErrorCode.HTTP_ACCESS_DENIED));
 
         ComponentTestResourceHelper.cleanDirectory(testCache);
     }
@@ -269,7 +269,7 @@ class HttpDownloaderTest {
                 () -> downloader.getDownloadSize());
 
         assertThat(exception.getMessage(), containsStringIgnoringCase("not found"));
-        assertEquals(DeploymentErrorCode.HTTP_RESOURCE_NOT_FOUND, exception.getErrorCode());
+        assertTrue(exception.getErrorCodes().contains(DeploymentErrorCode.HTTP_RESOURCE_NOT_FOUND));
 
         ComponentTestResourceHelper.cleanDirectory(testCache);
     }
