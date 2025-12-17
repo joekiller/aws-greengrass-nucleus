@@ -10,10 +10,14 @@ import com.aws.greengrass.componentmanager.ComponentTestResourceHelper;
 import com.aws.greengrass.componentmanager.exceptions.PackageDownloadException;
 import com.aws.greengrass.componentmanager.models.ComponentArtifact;
 import com.aws.greengrass.componentmanager.models.ComponentIdentifier;
+import com.aws.greengrass.deployment.DeviceConfiguration;
 import com.aws.greengrass.deployment.errorcode.DeploymentErrorCode;
 import com.aws.greengrass.deployment.exceptions.RetryableServerErrorException;
 import com.aws.greengrass.testcommons.testutilities.GGExtension;
+import com.aws.greengrass.tes.LazyCredentialProvider;
 import com.vdurmont.semver4j.Semver;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.regions.Region;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -68,11 +72,22 @@ class HttpDownloaderTest {
     @Mock
     private ComponentStore componentStore;
 
+    @Mock
+    private LazyCredentialProvider credentialProvider;
+
+    @Mock
+    private DeviceConfiguration deviceConfiguration;
+
     private Path testCache;
 
     @BeforeEach
     void beforeEach() throws Exception {
         testCache = ComponentTestResourceHelper.getPathForLocalTestCache();
+
+        // Setup mock credentials
+        when(credentialProvider.resolveCredentials())
+                .thenReturn(AwsBasicCredentials.create("test-access-key", "test-secret-key"));
+        when(deviceConfiguration.getAWSRegion()).thenReturn("us-east-1");
     }
 
     @Test
@@ -94,7 +109,7 @@ class HttpDownloaderTest {
         Path saveToPath = testCache.resolve("MyComponent").resolve("1.0.0");
         Files.createDirectories(saveToPath);
 
-        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore));
+        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore, credentialProvider, deviceConfiguration));
 
         assertThat(downloader.getArtifactFilename(), is("my-component.zip"));
 
@@ -148,7 +163,7 @@ class HttpDownloaderTest {
         Path saveToPath = testCache.resolve("MyComponent").resolve("1.0.0");
         Files.createDirectories(saveToPath);
 
-        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore));
+        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore, credentialProvider, deviceConfiguration));
 
         // Verify that HTTP scheme logs a warning (constructor should have logged it)
         assertThat(downloader.getArtifactFilename(), is("my-component.zip"));
@@ -175,7 +190,7 @@ class HttpDownloaderTest {
         Path saveToPath = testCache.resolve("MyComponent").resolve("1.0.0");
         Files.createDirectories(saveToPath);
 
-        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore));
+        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore, credentialProvider, deviceConfiguration));
 
         // Mock HTTP client
         doReturn(httpClient).when(downloader).getSdkHttpClient();
@@ -220,7 +235,7 @@ class HttpDownloaderTest {
         Path saveToPath = testCache.resolve("MyComponent").resolve("1.0.0");
         Files.createDirectories(saveToPath);
 
-        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore));
+        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore, credentialProvider, deviceConfiguration));
 
         // Mock HTTP client
         doReturn(httpClient).when(downloader).getSdkHttpClient();
@@ -258,7 +273,7 @@ class HttpDownloaderTest {
         Path saveToPath = testCache.resolve("MyComponent").resolve("1.0.0");
         Files.createDirectories(saveToPath);
 
-        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore));
+        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore, credentialProvider, deviceConfiguration));
 
         // Mock HTTP client
         doReturn(httpClient).when(downloader).getSdkHttpClient();
@@ -303,7 +318,7 @@ class HttpDownloaderTest {
         Path saveToPath = testCache.resolve("MyComponent").resolve("1.0.0");
         Files.createDirectories(saveToPath);
 
-        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore));
+        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore, credentialProvider, deviceConfiguration));
         // Set retry interval to zero to speed up test
         downloader.setClientExceptionRetryConfig(
                 downloader.getClientExceptionRetryConfig().toBuilder().initialRetryInterval(Duration.ZERO).build());
@@ -352,7 +367,7 @@ class HttpDownloaderTest {
 
         Path saveToPath = testCache.resolve("MyComponent").resolve("1.0.0");
 
-        HttpDownloader downloader = new HttpDownloader(pkgId, artifact, saveToPath, componentStore);
+        HttpDownloader downloader = new HttpDownloader(pkgId, artifact, saveToPath, componentStore, credentialProvider, deviceConfiguration);
 
         Optional<String> error = downloader.checkDownloadable();
         assertTrue(error.isPresent());
@@ -370,7 +385,7 @@ class HttpDownloaderTest {
 
         Path saveToPath = testCache.resolve("MyComponent").resolve("1.0.0");
 
-        HttpDownloader downloader = new HttpDownloader(pkgId, artifact, saveToPath, componentStore);
+        HttpDownloader downloader = new HttpDownloader(pkgId, artifact, saveToPath, componentStore, credentialProvider, deviceConfiguration);
 
         assertThat(downloader.getArtifactFilename(), is("my-artifact.tar.gz"));
     }
@@ -386,7 +401,7 @@ class HttpDownloaderTest {
 
         Path saveToPath = testCache.resolve("MyComponent").resolve("1.0.0");
 
-        HttpDownloader downloader = new HttpDownloader(pkgId, artifact, saveToPath, componentStore);
+        HttpDownloader downloader = new HttpDownloader(pkgId, artifact, saveToPath, componentStore, credentialProvider, deviceConfiguration);
 
         assertThat(downloader.getArtifactFilename(), is("file.zip"));
     }
@@ -402,7 +417,7 @@ class HttpDownloaderTest {
 
         Path saveToPath = testCache.resolve("MyComponent").resolve("1.0.0");
 
-        HttpDownloader downloader = new HttpDownloader(pkgId, artifact, saveToPath, componentStore);
+        HttpDownloader downloader = new HttpDownloader(pkgId, artifact, saveToPath, componentStore, credentialProvider, deviceConfiguration);
 
         String filename = downloader.getArtifactFilename();
         assertNotNull(filename);
@@ -424,7 +439,7 @@ class HttpDownloaderTest {
         Path saveToPath = testCache.resolve("MyComponent").resolve("1.0.0");
         Files.createDirectories(saveToPath);
 
-        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore));
+        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore, credentialProvider, deviceConfiguration));
         // Set retry interval to zero to speed up test
         downloader.setClientExceptionRetryConfig(
                 downloader.getClientExceptionRetryConfig().toBuilder().initialRetryInterval(Duration.ZERO).build());
@@ -468,7 +483,7 @@ class HttpDownloaderTest {
         Path saveToPath = testCache.resolve("MyComponent").resolve("1.0.0");
         Files.createDirectories(saveToPath);
 
-        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore));
+        HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore, credentialProvider, deviceConfiguration));
 
         // Mock HTTP client
         doReturn(httpClient).when(downloader).getSdkHttpClient();

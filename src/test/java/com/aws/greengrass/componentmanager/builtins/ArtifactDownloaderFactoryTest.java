@@ -13,6 +13,7 @@ import com.aws.greengrass.componentmanager.models.ComponentIdentifier;
 import com.aws.greengrass.deployment.DeviceConfiguration;
 import com.aws.greengrass.dependency.Context;
 import com.aws.greengrass.testcommons.testutilities.GGExtension;
+import com.aws.greengrass.tes.LazyCredentialProvider;
 import com.aws.greengrass.util.GreengrassServiceClientFactory;
 import com.aws.greengrass.util.S3SdkClientFactory;
 import com.vdurmont.semver4j.Semver;
@@ -58,13 +59,16 @@ class ArtifactDownloaderFactoryTest {
     @Mock
     DeviceConfiguration deviceConfiguration;
 
+    @Mock
+    LazyCredentialProvider credentialProvider;
+
     ArtifactDownloaderFactory artifactDownloaderFactory;
 
     @BeforeEach
     public void setup() {
         artifactDownloaderFactory =
                 new ArtifactDownloaderFactory(s3SdkClientFactory, greengrassServiceClientFactory,
-                        componentStore, context, deviceConfiguration);
+                        componentStore, context, deviceConfiguration, credentialProvider);
     }
 
     @Test

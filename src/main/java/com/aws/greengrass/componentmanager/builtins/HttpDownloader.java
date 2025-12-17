@@ -9,13 +9,19 @@ import com.aws.greengrass.componentmanager.ComponentStore;
 import com.aws.greengrass.componentmanager.exceptions.PackageDownloadException;
 import com.aws.greengrass.componentmanager.models.ComponentArtifact;
 import com.aws.greengrass.componentmanager.models.ComponentIdentifier;
+import com.aws.greengrass.deployment.DeviceConfiguration;
 import com.aws.greengrass.deployment.errorcode.DeploymentErrorCode;
 import com.aws.greengrass.deployment.exceptions.RetryableServerErrorException;
+import com.aws.greengrass.tes.LazyCredentialProvider;
+import com.aws.greengrass.util.Coerce;
 import com.aws.greengrass.util.ProxyUtils;
 import com.aws.greengrass.util.RetryUtils;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
+import software.amazon.awssdk.auth.credentials.AwsCredentials;
+import software.amazon.awssdk.auth.signer.Aws4Signer;
+import software.amazon.awssdk.auth.signer.params.Aws4SignerParams;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.http.HttpExecuteRequest;
 import software.amazon.awssdk.http.HttpExecuteResponse;
@@ -23,6 +29,7 @@ import software.amazon.awssdk.http.SdkHttpClient;
 import software.amazon.awssdk.http.SdkHttpFullRequest;
 import software.amazon.awssdk.http.SdkHttpMethod;
 import software.amazon.awssdk.http.SdkHttpResponse;
+import software.amazon.awssdk.regions.Region;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,7 +46,7 @@ import java.util.Optional;
 
 /**
  * HTTP/HTTPS artifact downloader supporting standard web URLs including CloudFront distributions.
- * Supports resumable downloads using HTTP Range headers and standard HTTP error handling.
+ * Supports resumable downloads using HTTP Range headers, AWS SigV4 request signing, and standard HTTP error handling.
  */
 public class HttpDownloader extends ArtifactDownloader {
     static final String CONTENT_LENGTH_HEADER = "content-length";
@@ -47,6 +54,9 @@ public class HttpDownloader extends ArtifactDownloader {
             Arrays.asList(DeploymentErrorCode.HTTP_GET_REQUEST_ERROR,
                     DeploymentErrorCode.HTTP_REQUEST_ERROR);
     private Long artifactSize = null;
+    private final LazyCredentialProvider credentialProvider;
+    private final DeviceConfiguration deviceConfiguration;
+    private final Aws4Signer signer;
 
     @Setter(AccessLevel.PACKAGE)
     @Getter(AccessLevel.PACKAGE)
@@ -60,14 +70,77 @@ public class HttpDownloader extends ArtifactDownloader {
                     .build();
 
     protected HttpDownloader(ComponentIdentifier identifier, ComponentArtifact artifact,
-                             Path artifactDir, ComponentStore componentStore) {
+                             Path artifactDir, ComponentStore componentStore,
+                             LazyCredentialProvider credentialProvider,
+                             DeviceConfiguration deviceConfiguration) {
         super(identifier, artifact, artifactDir, componentStore);
+        this.credentialProvider = credentialProvider;
+        this.deviceConfiguration = deviceConfiguration;
+        this.signer = Aws4Signer.create();
 
         // Log security warning for unencrypted HTTP
         if ("http".equalsIgnoreCase(artifact.getArtifactUri().getScheme())) {
             logger.atWarn().log("Using unencrypted HTTP for artifact download. "
                     + "HTTPS is strongly recommended for security.");
         }
+    }
+
+    /**
+     * Sign an HTTP request using AWS Signature Version 4.
+     * Signs the request with device credentials from IoT certificate + role alias.
+     *
+     * @param request the HTTP request to sign
+     * @param serviceName the AWS service name (e.g., "execute-api", "s3")
+     * @return signed HTTP request
+     */
+    @SuppressWarnings("PMD.AvoidCatchingGenericException")
+    private SdkHttpFullRequest signRequest(SdkHttpFullRequest request, String serviceName) {
+        try {
+            AwsCredentials credentials = credentialProvider.resolveCredentials();
+            Region region = Region.of(Coerce.toString(deviceConfiguration.getAWSRegion()));
+
+            Aws4SignerParams signerParams = Aws4SignerParams.builder()
+                    .awsCredentials(credentials)
+                    .signingName(serviceName)
+                    .signingRegion(region)
+                    .build();
+
+            return signer.sign(request, signerParams);
+        } catch (Exception e) {
+            logger.atWarn().setCause(e).log("Failed to sign HTTP request, proceeding with unsigned request");
+            return request;
+        }
+    }
+
+    /**
+     * Determine if request signing should be attempted based on URI and configuration.
+     * Currently signs all HTTPS requests to AWS service endpoints.
+     *
+     * @param uri the URI to check
+     * @return the service name to use for signing, or null if signing should not be performed
+     */
+    private String getServiceNameForSigning(URI uri) {
+        if (uri == null || uri.getHost() == null) {
+            return null;
+        }
+
+        String host = uri.getHost().toLowerCase();
+
+        // Check for API Gateway endpoints
+        if (host.contains(".execute-api.") && host.contains(".amazonaws.com")) {
+            return "execute-api";
+        }
+
+        // Check for S3 endpoints (CloudFront in front of S3)
+        if (host.contains(".s3.") && host.contains(".amazonaws.com")) {
+            return "s3";
+        }
+
+        // Check for CloudFront distributions that might be fronting AWS services
+        // For now, don't auto-sign CloudFront URLs as they could be public or use signed URLs
+        // Users can extend this logic based on their specific CloudFront setup
+
+        return null; // No signing by default
     }
 
     @Override
@@ -119,12 +192,21 @@ public class HttpDownloader extends ArtifactDownloader {
         URI uri = artifact.getArtifactUri();
 
         try (SdkHttpClient client = getSdkHttpClient()) {
-            // Use HEAD request to get content length without downloading the body
+            // Build the HEAD request
+            SdkHttpFullRequest.Builder requestBuilder = SdkHttpFullRequest.builder()
+                    .uri(uri)
+                    .method(SdkHttpMethod.HEAD);
+
+            // Sign request if targeting an AWS service
+            SdkHttpFullRequest request = requestBuilder.build();
+            String serviceName = getServiceNameForSigning(uri);
+            if (serviceName != null) {
+                logger.atDebug().kv("service", serviceName).log("Signing HTTP HEAD request with SigV4");
+                request = signRequest(request, serviceName);
+            }
+
             HttpExecuteRequest executeRequest = HttpExecuteRequest.builder()
-                    .request(SdkHttpFullRequest.builder()
-                            .uri(uri)
-                            .method(SdkHttpMethod.HEAD)
-                            .build())
+                    .request(request)
                     .build();
             HttpExecuteResponse executeResponse = client.prepareRequest(executeRequest).call();
 
@@ -160,11 +242,21 @@ public class HttpDownloader extends ArtifactDownloader {
 
     private Long getDownloadSizeUsingGet(URI uri, SdkHttpClient client)
             throws IOException, PackageDownloadException {
+        // Build the GET request
+        SdkHttpFullRequest.Builder requestBuilder = SdkHttpFullRequest.builder()
+                .uri(uri)
+                .method(SdkHttpMethod.GET);
+
+        // Sign request if targeting an AWS service
+        SdkHttpFullRequest request = requestBuilder.build();
+        String serviceName = getServiceNameForSigning(uri);
+        if (serviceName != null) {
+            logger.atDebug().kv("service", serviceName).log("Signing HTTP GET request with SigV4");
+            request = signRequest(request, serviceName);
+        }
+
         HttpExecuteRequest executeRequest = HttpExecuteRequest.builder()
-                .request(SdkHttpFullRequest.builder()
-                        .uri(uri)
-                        .method(SdkHttpMethod.GET)
-                        .build())
+                .request(request)
                 .build();
         HttpExecuteResponse executeResponse = client.prepareRequest(executeRequest).call();
 
@@ -197,13 +289,23 @@ public class HttpDownloader extends ArtifactDownloader {
         try {
             return RetryUtils.runWithRetry(clientExceptionRetryConfig, () -> {
                 try (SdkHttpClient client = getSdkHttpClient()) {
+                    // Build the GET request with Range header
+                    SdkHttpFullRequest.Builder requestBuilder = SdkHttpFullRequest.builder()
+                            .uri(uri)
+                            .method(SdkHttpMethod.GET)
+                            .putHeader(HTTP_RANGE_HEADER_KEY,
+                                    String.format(HTTP_RANGE_HEADER_FORMAT, rangeStart, rangeEnd));
+
+                    // Sign request if targeting an AWS service
+                    SdkHttpFullRequest request = requestBuilder.build();
+                    String serviceName = getServiceNameForSigning(uri);
+                    if (serviceName != null) {
+                        logger.atDebug().kv("service", serviceName).log("Signing HTTP GET request with SigV4");
+                        request = signRequest(request, serviceName);
+                    }
+
                     HttpExecuteRequest executeRequest = HttpExecuteRequest.builder()
-                            .request(SdkHttpFullRequest.builder()
-                                    .uri(uri)
-                                    .method(SdkHttpMethod.GET)
-                                    .putHeader(HTTP_RANGE_HEADER_KEY,
-                                            String.format(HTTP_RANGE_HEADER_FORMAT, rangeStart, rangeEnd))
-                                    .build())
+                            .request(request)
                             .build();
                     HttpExecuteResponse executeResponse = client.prepareRequest(executeRequest).call();
 

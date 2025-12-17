@@ -16,6 +16,7 @@ import com.aws.greengrass.componentmanager.plugins.docker.Image;
 import com.aws.greengrass.dependency.Context;
 import com.aws.greengrass.deployment.DeviceConfiguration;
 import com.aws.greengrass.deployment.errorcode.DeploymentErrorCode;
+import com.aws.greengrass.tes.LazyCredentialProvider;
 import com.aws.greengrass.util.GreengrassServiceClientFactory;
 import com.aws.greengrass.util.S3SdkClientFactory;
 
@@ -55,6 +56,8 @@ public class ArtifactDownloaderFactory {
 
     private final DeviceConfiguration deviceConfiguration;
 
+    private final LazyCredentialProvider credentialProvider;
+
     /**
      * ArtifactDownloaderFactory constructor.
      *
@@ -63,18 +66,21 @@ public class ArtifactDownloaderFactory {
      * @param componentStore                          componentStore
      * @param context                                 context
      * @param deviceConfiguration                     deviceConfiguration
+     * @param credentialProvider                      credentialProvider
      */
     @Inject
     public ArtifactDownloaderFactory(S3SdkClientFactory s3SdkClientFactory,
                                      GreengrassServiceClientFactory greengrassServiceClientFactory,
                                      ComponentStore componentStore,
                                      Context context,
-                                     DeviceConfiguration deviceConfiguration) {
+                                     DeviceConfiguration deviceConfiguration,
+                                     LazyCredentialProvider credentialProvider) {
         this.s3ClientFactory = s3SdkClientFactory;
         this.clientFactory = greengrassServiceClientFactory;
         this.componentStore = componentStore;
         this.context = context;
         this.deviceConfiguration = deviceConfiguration;
+        this.credentialProvider = credentialProvider;
     }
 
     /**
@@ -104,7 +110,8 @@ public class ArtifactDownloaderFactory {
             return new DockerImageDownloader(identifier, artifact, artifactDir, context, componentStore);
         }
         if (HTTP_SCHEME.equals(scheme) || HTTPS_SCHEME.equals(scheme)) {
-            return new HttpDownloader(identifier, artifact, artifactDir, componentStore);
+            return new HttpDownloader(identifier, artifact, artifactDir, componentStore,
+                    credentialProvider, deviceConfiguration);
         }
         throw new PackageLoadingException(String.format("artifact URI scheme %s is not supported yet", scheme),
                 DeploymentErrorCode.UNSUPPORTED_ARTIFACT_SCHEME);
