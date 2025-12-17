@@ -11,11 +11,13 @@ import com.aws.greengrass.componentmanager.exceptions.PackageDownloadException;
 import com.aws.greengrass.componentmanager.models.ComponentArtifact;
 import com.aws.greengrass.componentmanager.models.ComponentIdentifier;
 import com.aws.greengrass.deployment.errorcode.DeploymentErrorCode;
+import com.aws.greengrass.deployment.exceptions.RetryableServerErrorException;
 import com.aws.greengrass.testcommons.testutilities.GGExtension;
 import com.vdurmont.semver4j.Semver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.extension.ExtensionContext;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import software.amazon.awssdk.core.exception.SdkClientException;
@@ -30,11 +32,13 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Optional;
 
 import static com.aws.greengrass.componentmanager.builtins.HttpDownloader.CONTENT_LENGTH_HEADER;
+import static com.aws.greengrass.testcommons.testutilities.ExceptionLogProtector.ignoreExceptionOfType;
 import static java.net.HttpURLConnection.HTTP_FORBIDDEN;
 import static java.net.HttpURLConnection.HTTP_NOT_FOUND;
 import static java.net.HttpURLConnection.HTTP_OK;
@@ -281,7 +285,8 @@ class HttpDownloaderTest {
     }
 
     @Test
-    void GIVEN_5xx_server_error_WHEN_download_THEN_retries() throws Exception {
+    void GIVEN_5xx_server_error_WHEN_download_THEN_retries(ExtensionContext context) throws Exception {
+        ignoreExceptionOfType(context, RetryableServerErrorException.class);
         Path mockArtifactPath = ComponentTestResourceHelper
                 .getPathForTestPackage(ComponentTestResourceHelper.MONITORING_SERVICE_PACKAGE_NAME, "1.0.0")
                 .resolve("monitor_artifact_100.txt");
@@ -299,6 +304,9 @@ class HttpDownloaderTest {
         Files.createDirectories(saveToPath);
 
         HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore));
+        // Set retry interval to zero to speed up test
+        downloader.setClientExceptionRetryConfig(
+                downloader.getClientExceptionRetryConfig().toBuilder().initialRetryInterval(Duration.ZERO).build());
 
         // Mock HTTP client
         doReturn(httpClient).when(downloader).getSdkHttpClient();
@@ -404,7 +412,8 @@ class HttpDownloaderTest {
     }
 
     @Test
-    void GIVEN_network_error_WHEN_download_THEN_retries() throws Exception {
+    void GIVEN_network_error_WHEN_download_THEN_retries(ExtensionContext context) throws Exception {
+        ignoreExceptionOfType(context, SdkClientException.class);
         ComponentArtifact artifact = ComponentArtifact.builder()
                 .algorithm(SHA256)
                 .checksum("dummychecksum")
@@ -416,6 +425,9 @@ class HttpDownloaderTest {
         Files.createDirectories(saveToPath);
 
         HttpDownloader downloader = spy(new HttpDownloader(pkgId, artifact, saveToPath, componentStore));
+        // Set retry interval to zero to speed up test
+        downloader.setClientExceptionRetryConfig(
+                downloader.getClientExceptionRetryConfig().toBuilder().initialRetryInterval(Duration.ZERO).build());
 
         // Mock HTTP client
         doReturn(httpClient).when(downloader).getSdkHttpClient();
